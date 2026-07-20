@@ -35,5 +35,5 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn });
+  return jwt.sign(payload, env.jwtSecret, { expiresIn: env.jwtExpiresIn as any });
 }
