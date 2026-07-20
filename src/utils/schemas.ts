@@ -5,6 +5,13 @@ export const loginSchema = z.object({
   password: z.string().min(4),
 });
 
+export const registerSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+  password: z.string().min(4),
+  companyName: z.string().min(2).optional(),
+});
+
 export const deviceListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(10),
