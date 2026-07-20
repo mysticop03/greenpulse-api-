@@ -13,6 +13,8 @@ const SORT_COLUMN: Record<string, string> = {
 
 import { getDaysOffset, adjustDevice } from "../services/dashboardService";
 
+import { getCompanyId } from "../utils/company";
+
 /** GET /api/devices */
 export async function listDevices(req: Request, res: Response) {
   const { page = 1, pageSize = 10, search, riskLevel = "all", category = "all", sortBy = "health", sortDir = "asc", date } = req.query as unknown as {
@@ -26,8 +28,9 @@ export async function listDevices(req: Request, res: Response) {
     date?: string;
   };
 
+  const companyId = await getCompanyId(req);
   const rawRows = await prisma.device.findMany({
-    where: { companyId: req.auth!.companyId },
+    where: { companyId },
   });
 
   const offset = getDaysOffset(date);
@@ -73,8 +76,9 @@ export async function listDevices(req: Request, res: Response) {
 
 /** GET /api/devices/:id */
 export async function getDeviceById(req: Request, res: Response) {
+  const companyId = await getCompanyId(req);
   const device = await prisma.device.findFirst({
-    where: { id: req.params.id, companyId: req.auth!.companyId },
+    where: { id: req.params.id, companyId },
     include: { healthHistory: { orderBy: { recordedAt: "asc" }, take: 20 } },
   });
   if (!device) throw new HttpError(404, "Device not found");

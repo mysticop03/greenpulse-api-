@@ -3,12 +3,15 @@ import { prisma } from "../config/prisma";
 
 import { getDaysOffset } from "../services/dashboardService";
 
+import { getCompanyId } from "../utils/company";
+
 /** GET /api/tickets */
 export async function listTickets(req: Request, res: Response) {
   const { date } = req.query as { date?: string };
+  const companyId = await getCompanyId(req);
   
   const tickets = await prisma.ticket.findMany({
-    where: { createdById: req.auth!.userId },
+    where: { createdBy: { companyId } },
     orderBy: { createdAt: "desc" },
   });
 

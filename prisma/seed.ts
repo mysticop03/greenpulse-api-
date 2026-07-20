@@ -29,112 +29,124 @@ function randInt(min: number, max: number) {
 async function main() {
   console.log("Seeding database…");
 
-  const company = await prisma.company.upsert({
-    where: { id: "seed-company-acme" },
-    update: {},
-    create: { id: "seed-company-acme", name: "Acme Global Corp." },
-  });
+  // Define the three companies
+  const companiesData = [
+    { id: "seed-company-acme", name: "Acme Global Corp." },
+    { id: "seed-company-retail", name: "Acme Retail India" },
+    { id: "seed-company-mfg", name: "Acme Manufacturing" },
+  ];
 
   const passwordHash = await bcrypt.hash("password123", 10);
-  await prisma.user.upsert({
-    where: { email: "rohit.sharma@acmeglobal.com" },
-    update: {},
-    create: {
-      name: "Rohit Sharma",
-      email: "rohit.sharma@acmeglobal.com",
-      passwordHash,
-      role: "IT Administrator",
-      companyId: company.id,
-    },
-  });
 
-  // Clear existing devices for idempotent re-seeding
-  await prisma.device.deleteMany({ where: { companyId: company.id } });
+  // Clear existing data to avoid conflicts on re-seed in constraint-safe order
+  await prisma.chatMessage.deleteMany({});
+  await prisma.prediction.deleteMany({});
+  await prisma.recommendation.deleteMany({});
+  await prisma.ticket.deleteMany({});
+  await prisma.deviceHealthPoint.deleteMany({});
+  await prisma.deviceMaintenanceEvent.deleteMany({});
+  await prisma.maintenanceEvent.deleteMany({});
+  await prisma.alert.deleteMany({});
+  await prisma.device.deleteMany({});
+  await prisma.user.deleteMany({});
+  await prisma.company.deleteMany({});
 
-  const devices = [];
-  for (let i = 1; i <= 38; i++) {
-    const issue = rand(ISSUES);
-    const health = randInt(35, 96);
-    const riskLevel = health < 60 ? "high" : health < 80 ? "medium" : "low";
-    const device = await prisma.device.create({
+  for (const cData of companiesData) {
+    console.log(`Seeding company: ${cData.name}...`);
+    
+    const company = await prisma.company.create({
+      data: cData,
+    });
+
+    // Create a default administrator user for each company
+    const emailPrefix = cData.id.split("-").pop();
+    const user = await prisma.user.create({
       data: {
-        assetTag: `LAP-IT-${1000 + i}`,
-        model: rand(MODELS),
-        category: rand(CATEGORIES),
-        status: "active",
-        healthScore: health,
-        riskLevel: riskLevel as never,
-        aiConfidence: randInt(55, 98),
-        issueCode: issue.code,
-        issueLabel: issue.label,
-        issueDetectedAt: new Date(Date.now() - randInt(1, 20) * 86400000),
-        recommendedAction: issue.action,
-        recommendedType: issue.type as never,
-        recommendedEta: new Date(Date.now() + randInt(3, 45) * 86400000),
-        ownerName: rand(OWNERS),
-        ownerDepartment: rand(DEPARTMENTS),
-        location: rand(LOCATIONS),
-        purchaseDate: new Date("2022-01-10"),
-        warrantyExpiresAt: new Date(Date.now() + randInt(-10, 120) * 86400000),
+        name: `Rohit Sharma (${cData.name.split(" ")[1]})`,
+        email: `rohit.sharma@acme${emailPrefix}.com`,
+        passwordHash,
+        role: "IT Administrator",
         companyId: company.id,
       },
     });
-    devices.push(device);
 
-    // Seed health history for the sparkline
-    await prisma.deviceHealthPoint.createMany({
-      data: Array.from({ length: 10 }, (_, d) => ({
-        deviceId: device.id,
-        recordedAt: new Date(Date.now() - (9 - d) * 86400000),
-        value: Math.max(15, health + randInt(-10, 10)),
-      })),
-    });
-  }
+    const devices = [];
+    for (let i = 1; i <= 38; i++) {
+      const issue = rand(ISSUES);
+      const health = randInt(35, 96);
+      const riskLevel = health < 60 ? "high" : health < 80 ? "medium" : "low";
+      const device = await prisma.device.create({
+        data: {
+          assetTag: `LAP-${emailPrefix?.toUpperCase()}-${1000 + i}`,
+          model: rand(MODELS),
+          category: rand(CATEGORIES),
+          status: "active",
+          healthScore: health,
+          riskLevel: riskLevel as never,
+          aiConfidence: randInt(55, 98),
+          issueCode: issue.code,
+          issueLabel: issue.label,
+          issueDetectedAt: new Date(Date.now() - randInt(1, 20) * 86400000),
+          recommendedAction: issue.action,
+          recommendedType: issue.type as never,
+          recommendedEta: new Date(Date.now() + randInt(3, 45) * 86400000),
+          ownerName: rand(OWNERS),
+          ownerDepartment: rand(DEPARTMENTS),
+          location: rand(LOCATIONS),
+          purchaseDate: new Date("2022-01-10"),
+          warrantyExpiresAt: new Date(Date.now() + randInt(-10, 120) * 86400000),
+          companyId: company.id,
+        },
+      });
+      devices.push(device);
 
-  // Alerts derived from the first few high-risk devices
-  const highRisk = devices.filter((d) => d.riskLevel === "high").slice(0, 4);
-  for (const device of highRisk) {
-    await prisma.alert.create({
-      data: {
-        severity: "critical",
-        title: `${device.issueLabel} on ${device.assetTag}`,
-        description: `AI detected ${device.issueLabel.toLowerCase()} with ${device.aiConfidence}% confidence.`,
-        deviceId: device.id,
-      },
-    });
-  }
+      // Seed health history for the sparkline
+      await prisma.deviceHealthPoint.createMany({
+        data: Array.from({ length: 10 }, (_, d) => ({
+          deviceId: device.id,
+          recordedAt: new Date(Date.now() - (9 - d) * 86400000),
+          value: Math.max(15, health + randInt(-10, 10)),
+        })),
+      });
+    }
 
-  // A few maintenance events referencing seeded devices
-  const maintenanceDefs = [
-    { title: "12 Batteries", description: "Replacement Scheduled", location: "Mumbai HQ", priority: "high" as const, daysFromNow: 2 },
-    { title: "8 SSDs", description: "Maintenance Window", location: "Bengaluru Office", priority: "medium" as const, daysFromNow: 4 },
-    { title: "18 Devices", description: "General Checkup", location: "Delhi Office", priority: "low" as const, daysFromNow: 7 },
-  ];
+    // Alerts derived from the first few high-risk devices
+    const highRisk = devices.filter((d) => d.riskLevel === "high").slice(0, 4);
+    for (const device of highRisk) {
+      await prisma.alert.create({
+        data: {
+          severity: "critical",
+          title: `${device.issueLabel} on ${device.assetTag}`,
+          description: `AI detected ${device.issueLabel.toLowerCase()} with ${device.aiConfidence}% confidence.`,
+          deviceId: device.id,
+        },
+      });
+    }
 
-  for (const def of maintenanceDefs) {
-    const event = await prisma.maintenanceEvent.create({
-      data: {
-        title: def.title,
-        description: def.description,
-        location: def.location,
-        priority: def.priority,
-        date: new Date(Date.now() + def.daysFromNow * 86400000),
-      },
-    });
-    const linked = devices.slice(0, 3);
-    await prisma.deviceMaintenanceEvent.createMany({
-      data: linked.map((d) => ({ deviceId: d.id, eventId: event.id })),
-    });
-  }
+    // A few maintenance events referencing seeded devices
+    const maintenanceDefs = [
+      { title: "12 Batteries", description: "Replacement Scheduled", location: "Mumbai HQ", priority: "high" as const, daysFromNow: 2 },
+      { title: "8 SSDs", description: "Maintenance Window", location: "Bengaluru Office", priority: "medium" as const, daysFromNow: 4 },
+      { title: "18 Devices", description: "General Checkup", location: "Delhi Office", priority: "low" as const, daysFromNow: 7 },
+    ];
 
-  // Clear existing tickets
-  await prisma.ticket.deleteMany({});
+    for (const def of maintenanceDefs) {
+      const event = await prisma.maintenanceEvent.create({
+        data: {
+          title: def.title,
+          description: def.description,
+          location: def.location,
+          priority: def.priority,
+          date: new Date(Date.now() + def.daysFromNow * 86400000),
+        },
+      });
+      const linked = devices.slice(0, 3);
+      await prisma.deviceMaintenanceEvent.createMany({
+        data: linked.map((d) => ({ deviceId: d.id, eventId: event.id })),
+      });
+    }
 
-  const user = await prisma.user.findFirst({
-    where: { email: "rohit.sharma@acmeglobal.com" },
-  });
-
-  if (user) {
+    // Seed 4 tickets for each company's admin user
     const ticketsData = [
       {
         subject: "Overheating & Fan Noise on Laptop",
@@ -175,7 +187,7 @@ async function main() {
     }
   }
 
-  console.log(`Seeded 1 company, 1 user, ${devices.length} devices, and 4 tickets.`);
+  console.log("Seeding completed successfully for all 3 companies!");
 }
 
 main()
