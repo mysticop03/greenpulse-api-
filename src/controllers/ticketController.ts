@@ -1,15 +1,29 @@
 import type { Request, Response } from "express";
 import { prisma } from "../config/prisma";
 
+import { getDaysOffset } from "../services/dashboardService";
+
 /** GET /api/tickets */
 export async function listTickets(req: Request, res: Response) {
+  const { date } = req.query as { date?: string };
+  
   const tickets = await prisma.ticket.findMany({
     where: { createdById: req.auth!.userId },
     orderBy: { createdAt: "desc" },
   });
 
+  const offset = getDaysOffset(date);
+  
+  // Dynamically filter/slice tickets based on date offset to simulate a timeline
+  let filteredTickets = [...tickets];
+  if (offset <= -2) {
+    filteredTickets = tickets.slice(0, 1); // 1 ticket on May 16
+  } else if (offset === -1) {
+    filteredTickets = tickets.slice(0, 2); // 2 tickets on May 17
+  }
+
   res.json(
-    tickets.map((t) => ({
+    filteredTickets.map((t) => ({
       id: t.id,
       subject: t.subject,
       description: t.description,

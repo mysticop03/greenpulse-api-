@@ -4,7 +4,8 @@ import { prisma } from "../config/prisma";
 
 /** GET /api/dashboard */
 export async function getDashboardSummary(req: Request, res: Response) {
-  const summary = await computeDashboardSummary(req.auth!.companyId);
+  const { date } = req.query as { date?: string };
+  const summary = await computeDashboardSummary(req.auth!.companyId, date);
   const user = await prisma.user.findUnique({ where: { id: req.auth!.userId } });
   res.json({ ...summary, userName: user?.name.split(" ")[0] ?? "there" });
 }

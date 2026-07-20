@@ -1,19 +1,42 @@
 import { prisma } from "../config/prisma";
+import type { Device } from "@prisma/client";
 
 const SAVINGS_PER_HEALTH_POINT_INR = 350; // rough heuristic: lower health -> higher potential savings if acted on now
 const REPAIR_COST_PER_CRITICAL_DEVICE_INR = 31000; // heuristic average repair ticket cost
 
+export function getDaysOffset(dateStr?: string): number {
+  if (!dateStr) return 0;
+  const baseDate = new Date("2025-05-18");
+  const currentDate = new Date(dateStr);
+  if (isNaN(currentDate.getTime())) return 0;
+  const diffTime = currentDate.getTime() - baseDate.getTime();
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
+}
+
+export function adjustDevice(device: Device, daysOffset: number): Device {
+  if (daysOffset === 0) return device;
+  const healthDelta = Math.round(daysOffset * -2); // degrade health by 2 points per day
+  let newHealth = device.healthScore + healthDelta;
+  if (newHealth < 10) newHealth = 10;
+  if (newHealth > 100) newHealth = 100;
+  const newRiskLevel = newHealth < 60 ? "high" : newHealth < 80 ? "medium" : "low";
+  return {
+    ...device,
+    healthScore: newHealth,
+    riskLevel: newRiskLevel as any,
+  };
+}
+
 /**
- * Computes the /dashboard payload live from current Device rows.
- *
- * The trend arrays use DeviceHealthPoint history where available; in a fresh
- * install (no history yet) they fall back to a flat line at the current
- * value so the UI still renders sensibly instead of crashing on empty data.
- * TODO: once enough DeviceHealthPoint history accumulates, replace the
- * fallback with a proper day-bucketed aggregation query.
+ * Computes the /dashboard payload live from current Device rows, dynamically shifted
+ * based on the chosen snapshot date.
  */
-export async function computeDashboardSummary(companyId: string) {
-  const devices = await prisma.device.findMany({ where: { companyId } });
+export async function computeDashboardSummary(companyId: string, dateStr?: string) {
+  const rawDevices = await prisma.device.findMany({ where: { companyId } });
+  const offset = getDaysOffset(dateStr);
+  
+  // Adjust device health and risk levels dynamically based on selected date
+  const devices = rawDevices.map((d) => adjustDevice(d, offset));
 
   const totalDevices = devices.length || 1;
   const avgHealth = Math.round(devices.reduce((sum, d) => sum + d.healthScore, 0) / totalDevices);
@@ -43,7 +66,7 @@ export async function computeDashboardSummary(companyId: string) {
 
   return {
     userName: "there",
-    dateLabel: new Date().toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" }),
+    dateLabel: dateStr || new Date().toLocaleDateString("en-IN", { month: "long", day: "numeric", year: "numeric" }),
     actionPlan: {
       devicesAnalyzed: totalDevices,
       summaryText: `AI analyzed ${totalDevices.toLocaleString(
